@@ -44,7 +44,7 @@ exports.up = async (pgm) => {
       pr_id: { type: 'integer', references: '"pull_requests"', onDelete: 'CASCADE' },
       github_review_id: { type: 'varchar(50)' },
       overall_summary: { type: 'text' },
-      quality_score: { type: 'integer' }, // 0-100
+      quality_score: { type: 'integer' },
       security_issues: { type: 'jsonb', default: "'[]'" },
       quality_issues: { type: 'jsonb', default: "'[]'" },
       test_coverage_issues: { type: 'jsonb', default: "'[]'" },
