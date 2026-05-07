@@ -3,19 +3,23 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-  "dev": "nodemon index.js",
-  "start": "node index.js",
-  "migrate:up": "node-pg-migrate up",
-  "migrate:down": "node-pg-migrate down",
-  "migrate:create": "node-pg-migrate create"
-},
+    "dev": "nodemon index.js",
+    "start": "node index.js",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@bull-board/api": "^7.0.0",
+    "@bull-board/express": "^7.0.0",
+    "@octokit/auth-app": "^8.2.0",
     "@octokit/rest": "^22.0.1",
     "@octokit/webhooks": "^14.2.0",
+    "bullmq": "^5.76.6",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -26,6 +30,8 @@
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "node-pg-migrate": "^8.0.4",
+    "p-limit": "^7.3.0",
+    "parse-diff": "^0.12.0",
     "pg": "^8.20.0",
     "rate-limit-redis": "^4.3.1"
   },
