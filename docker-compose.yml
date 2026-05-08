@@ -6,17 +6,13 @@ services:
     container_name: revue_server
     ports:
       - '5500:5500'
+    env_file:
+      - ./server/.env
     environment:
       - PORT=5500
       - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/revue
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
-      - GITHUB_APP_ID=${GITHUB_APP_ID}
-      - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY}
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - CLIENT_URL=http://localhost:5173
     depends_on:
       - postgres
