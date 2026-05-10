@@ -1,6 +1,7 @@
 const express = require('express');
 const { Webhooks } = require('@octokit/webhooks');
 const db = require('../db');
+const { reviewQueue } = require('../queues/index');
 
 const router = express.Router();
 
@@ -15,21 +16,16 @@ router.post(
     const signature = req.headers['x-hub-signature-256'];
     const body = req.body.toString();
 
-
     const isValid = await webhooks.verify(body, signature);
     if (!isValid) {
-      console.warn('Invalid webhook signature');
       return res.status(401).json({ error: 'Invalid signature' });
     }
 
     const event = req.headers['x-github-event'];
     const payload = JSON.parse(body);
 
-    console.log(`Received GitHub event: ${event} action: ${payload.action}`);
-
     if (event === 'pull_request') {
-      const { action, pull_request, repository } = payload;
-
+      const { action, pull_request, repository, installation } = payload;
 
       if (action === 'opened' || action === 'synchronize') {
         try {
@@ -39,30 +35,59 @@ router.post(
           );
 
           if (repoRows[0]) {
+            const repoId = repoRows[0].id;
             await db.query(
+              'UPDATE repos SET installation_id = $1 WHERE id = $2',
+              [String(installation?.id), repoId]
+            );
+
+    
+            const { rows: prRows } = await db.query(
               `INSERT INTO pull_requests
                  (repo_id, github_pr_id, pr_number, title, author,
-                  base_branch, head_branch, diff_url, status)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+                  base_branch, head_branch, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
                ON CONFLICT (repo_id, github_pr_id)
-               DO UPDATE SET title = $4, status = 'pending', updated_at = NOW()`,
+               DO UPDATE SET
+                 title = $4,
+                 status = 'pending',
+                 updated_at = NOW()
+               RETURNING id`,
               [
-                repoRows[0].id,
+                repoId,
                 String(pull_request.id),
                 pull_request.number,
                 pull_request.title,
                 pull_request.user.login,
                 pull_request.base.ref,
                 pull_request.head.ref,
-                pull_request.diff_url,
               ]
             );
 
-            console.log(`PR #${pull_request.number} queued for review`);
+            // Queue the review job
+            await reviewQueue.add(
+              'review-pr',
+              {
+                prId:           prRows[0].id,
+                owner:          repository.owner.login,
+                repo:           repository.name,
+                prNumber:       pull_request.number,
+                prTitle:        pull_request.title,
+                prAuthor:       pull_request.user.login,
+                installationId: String(installation?.id),
+              },
+              {
+                attempts:         3,
+                backoff:          { type: 'exponential', delay: 3000 },
+                removeOnComplete: { count: 50 },
+                removeOnFail:     { count: 20 },
+              }
+            );
 
+            console.log(`PR #${pull_request.number} queued for review`);
           }
         } catch (err) {
-          console.error('Webhook DB error:', err.message);
+          console.error('Webhook processing error:', err.message);
         }
       }
     }

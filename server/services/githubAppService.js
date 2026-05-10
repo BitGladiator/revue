@@ -16,6 +16,22 @@ const getInstallationOctokit = async (installationId) => {
   return new Octokit({ auth: token });
 };
 
+const getInstallationIdForRepo = async (owner, repo) => {
+  const auth = createAppAuth({
+    appId: process.env.GITHUB_APP_ID,
+    privateKey: process.env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  });
+  const { token } = await auth({ type: 'app' });
+  const appOctokit = new Octokit({ auth: token });
+  try {
+    const { data } = await appOctokit.apps.getRepoInstallation({ owner, repo });
+    return data.id;
+  } catch (err) {
+    if (err.status === 404) return null;
+    throw err;
+  }
+};
+
 
 const getPRDiff = async (owner, repo, prNumber, installationId) => {
   const cacheKey = `diff:${owner}:${repo}:${prNumber}`;
@@ -88,20 +104,37 @@ const formatDiffForAgent = (files) => {
 const postReview = async (owner, repo, prNumber, installationId, summary, comments) => {
   const octokit = await getInstallationOctokit(installationId);
 
-  await octokit.pulls.createReview({
-    owner,
-    repo,
-    pull_number: prNumber,
-    event: 'COMMENT',
-    body: summary,
-    comments: comments
-      .filter((c) => c.path && c.line && c.body)
-      .map((c) => ({
-        path: c.path,
-        line: c.line,
-        body: c.body,
-      })),
-  });
+  const validComments = comments
+    .filter((c) => c.path && c.line && c.body)
+    .map((c) => ({
+      path: c.path,
+      line: c.line,
+      body: c.body,
+    }));
+
+  try {
+    await octokit.pulls.createReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      event: 'COMMENT',
+      body: summary,
+      comments: validComments,
+    });
+  } catch (err) {
+    if (err.status === 422) {
+      console.warn(`[PR #${prNumber}] Failed to post inline comments due to validation error. Falling back to summary only. Error: ${err.message}`);
+      await octokit.pulls.createReview({
+        owner,
+        repo,
+        pull_number: prNumber,
+        event: 'COMMENT',
+        body: summary + '\n\n> **Note:** Some inline comments could not be posted to specific lines due to mismatches with the PR diff.',
+      });
+    } else {
+      throw err;
+    }
+  }
 };
 
 module.exports = {
@@ -110,4 +143,5 @@ module.exports = {
   formatDiffForAgent,
   postReview,
   getInstallationOctokit,
+  getInstallationIdForRepo,
 };

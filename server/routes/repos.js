@@ -74,7 +74,57 @@ router.post('/connect', authenticate, async (req, res) => {
        RETURNING *`,
       [req.userId, github_repo_id, full_name, name, owner, isPrivate]
     );
-    res.json(rows[0]);
+    
+    let repo = rows[0];
+
+    if (!repo) {
+      const { rows: existingRows } = await db.query(
+        'SELECT * FROM repos WHERE user_id = $1 AND github_repo_id = $2',
+        [req.userId, github_repo_id]
+      );
+      repo = existingRows[0];
+    }
+
+    const { rows: userRows } = await db.query(
+      'SELECT access_token FROM users WHERE id = $1',
+      [req.userId]
+    );
+    const token = userRows[0]?.access_token;
+
+    if (token && repo) {
+      const pullsRes = await fetch(
+        `https://api.github.com/repos/${full_name}/pulls?state=open&per_page=10`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+          },
+        }
+      );
+
+      if (pullsRes.ok) {
+        const pulls = await pullsRes.json();
+        for (const pr of pulls) {
+          await db.query(
+            `INSERT INTO pull_requests
+               (repo_id, github_pr_id, pr_number, title, author, base_branch, head_branch, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+             ON CONFLICT (repo_id, github_pr_id) DO NOTHING`,
+            [
+              repo.id,
+              String(pr.id),
+              pr.number,
+              pr.title,
+              pr.user.login,
+              pr.base.ref,
+              pr.head.ref,
+            ]
+          );
+        }
+      }
+    }
+
+    res.json(repo || {});
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

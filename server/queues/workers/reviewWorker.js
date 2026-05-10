@@ -93,8 +93,8 @@ const worker = new Worker('pr-reviews', async (job) => {
 
 const buildReviewBody = (review) => {
   const scoreEmoji =
-    review.overall_score >= 80 ? '✅' :
-    review.overall_score >= 60 ? '⚠️' : '❌';
+    review.overall_score >= 80 ? '' :
+    review.overall_score >= 60 ? '' : '';
 
   return `## Revue AI Review ${scoreEmoji}
 

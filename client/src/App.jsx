@@ -3,6 +3,8 @@ import { useAuth } from './hooks/useAuth.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Repos from './pages/Repos.jsx';
+import RepoPRs from './pages/RepoPRs.jsx';
+import ReviewDetail from './pages/ReviewDetail.jsx';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -20,6 +22,8 @@ const App = () => {
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Login />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/repos" element={<ProtectedRoute><Repos /></ProtectedRoute>} />
+      <Route path="/repos/:repoId" element={<ProtectedRoute><RepoPRs /></ProtectedRoute>} />
+      <Route path="/reviews/:prId" element={<ProtectedRoute><ReviewDetail /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to={user ? '/dashboard' : '/login'} replace />} />
     </Routes>
   );

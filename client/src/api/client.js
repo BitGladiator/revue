@@ -21,3 +21,9 @@ export const connectRepo = (data) =>
   apiFetch('/repos/connect', { method: 'POST', body: JSON.stringify(data) });
 export const disconnectRepo = (id) =>
   apiFetch(`/repos/${id}`, { method: 'DELETE' });
+export const getRepoPRs = (repoId) =>
+  apiFetch(`/reviews/repo/${repoId}`);
+export const getPRReview = (prId) =>
+  apiFetch(`/reviews/pr/${prId}`);
+export const retryPRReview = (prId) =>
+  apiFetch(`/reviews/pr/${prId}/retry`, { method: 'POST' });

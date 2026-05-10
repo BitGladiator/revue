@@ -1,6 +1,37 @@
 const Groq = require('groq-sdk');
-const pLimit = require('p-limit');
 const { REVIEW_PROMPTS } = require('./prompts');
+
+const pLimit = (concurrency) => {
+  const queue = [];
+  let activeCount = 0;
+
+  const next = () => {
+    activeCount--;
+    if (queue.length > 0) {
+      queue.shift()();
+    }
+  };
+
+  return (fn) => new Promise((resolve, reject) => {
+    const run = async () => {
+      activeCount++;
+      try {
+        const result = await fn();
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      } finally {
+        next();
+      }
+    };
+
+    if (activeCount < concurrency) {
+      run();
+    } else {
+      queue.push(run);
+    }
+  });
+};
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const limit = pLimit(3);

@@ -53,6 +53,7 @@ services:
       redis-server
         --maxmemory 128mb
         --maxmemory-policy noeviction
+        --appendonly yes
     volumes:
       - redis_data:/data
     deploy:
