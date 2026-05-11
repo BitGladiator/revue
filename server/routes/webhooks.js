@@ -64,7 +64,6 @@ router.post(
               ]
             );
 
-            // Queue the review job
             await reviewQueue.add(
               'review-pr',
               {
