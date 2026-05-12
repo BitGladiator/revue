@@ -4,6 +4,8 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const compression = require('compression');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 const { execSync } = require('child_process');
 const { ExpressAdapter } = require('@bull-board/express');
 const { createBullBoard } = require('@bull-board/api');
@@ -19,6 +21,7 @@ const webhookRoutes = require('./routes/webhooks');
 const reviewRoutes  = require('./routes/reviews');
 
 const app = express();
+const httpServer = createServer(app);
 
 
 try {
@@ -31,6 +34,14 @@ try {
 }
 
 const allowedOrigins = [process.env.CLIENT_URL, 'http://localhost:5173'].filter(Boolean);
+
+const io = new Server(httpServer, {
+  cors: { origin: allowedOrigins, credentials: true },
+  transports: ['websocket'],
+});
+
+
+module.exports.io = io;
 
 app.use(helmet());
 app.use(compression());
@@ -45,12 +56,23 @@ app.use('/admin/queues', serverAdapter.getRouter());
 
 
 app.use('/api/webhooks', webhookRoutes);
-
 app.use(express.json({ limit: '10kb' }));
 
 app.use('/api/auth',    authRoutes);
 app.use('/api/repos',   repoRoutes);
 app.use('/api/reviews', reviewRoutes);
+
+
+io.on('connection', (socket) => {
+  socket.on('join', (userId) => {
+    socket.join(`user:${userId}`);
+    console.log(`User ${userId} connected to WebSocket`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Client disconnected');
+  });
+});
 
 app.get('/api/health', (req, res) => res.json({
   status: 'ok',
@@ -64,4 +86,4 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5500;
-app.listen(PORT, () => console.log(`Revue server running on port ${PORT}`));
+httpServer.listen(PORT, () => console.log(`Revue server running on port ${PORT}`));

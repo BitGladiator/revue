@@ -17,9 +17,7 @@ router.post(
     const body = req.body.toString();
 
     const isValid = await webhooks.verify(body, signature);
-    if (!isValid) {
-      return res.status(401).json({ error: 'Invalid signature' });
-    }
+    if (!isValid) return res.status(401).json({ error: 'Invalid signature' });
 
     const event = req.headers['x-github-event'];
     const payload = JSON.parse(body);
@@ -30,28 +28,25 @@ router.post(
       if (action === 'opened' || action === 'synchronize') {
         try {
           const { rows: repoRows } = await db.query(
-            'SELECT id FROM repos WHERE github_repo_id = $1',
+            'SELECT id, user_id FROM repos WHERE github_repo_id = $1',
             [String(repository.id)]
           );
 
           if (repoRows[0]) {
-            const repoId = repoRows[0].id;
+            const { id: repoId, user_id: userId } = repoRows[0];
+
             await db.query(
               'UPDATE repos SET installation_id = $1 WHERE id = $2',
               [String(installation?.id), repoId]
             );
 
-    
             const { rows: prRows } = await db.query(
               `INSERT INTO pull_requests
                  (repo_id, github_pr_id, pr_number, title, author,
                   base_branch, head_branch, status)
                VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
                ON CONFLICT (repo_id, github_pr_id)
-               DO UPDATE SET
-                 title = $4,
-                 status = 'pending',
-                 updated_at = NOW()
+               DO UPDATE SET title = $4, status = 'pending', updated_at = NOW()
                RETURNING id`,
               [
                 repoId,
@@ -74,6 +69,7 @@ router.post(
                 prTitle:        pull_request.title,
                 prAuthor:       pull_request.user.login,
                 installationId: String(installation?.id),
+                userId,         // needed for WebSocket targeting
               },
               {
                 attempts:         3,
@@ -86,7 +82,7 @@ router.post(
             console.log(`PR #${pull_request.number} queued for review`);
           }
         } catch (err) {
-          console.error('Webhook processing error:', err.message);
+          console.error('Webhook error:', err.message);
         }
       }
     }
