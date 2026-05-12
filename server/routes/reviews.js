@@ -89,6 +89,7 @@ router.post('/pr/:prId/retry', authenticate, async (req, res) => {
         prTitle: pr.title,
         prAuthor: pr.author,
         installationId: String(installationId),
+        userId: req.userId,
       },
       {
         attempts: 3,
