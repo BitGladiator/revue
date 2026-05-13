@@ -50,16 +50,31 @@ const worker = new Worker(
       const rawFiles = await getPRDiff(owner, repo, prNumber, installationId);
       const truncated = truncateDiff(rawFiles, 50);
       const formattedDiff = formatDiffForAgent(truncated);
-
+      
       await job.updateProgress(30);
-
+      const { rows: settingsRows } = await db.query(
+        `SELECT rs.* FROM repo_settings rs
+         JOIN pull_requests pr ON pr.repo_id = rs.repo_id
+         WHERE pr.id = $1`,
+        [prId]
+      );
+      
+      const settings = settingsRows[0] || {};
       await emitToUser(userId, "pr_status", {
         prId,
         status: "reviewing",
         message: "Agents are analysing your code...",
       });
 
-      const review = await runReviewPipeline(formattedDiff, prTitle, prAuthor);
+      if (settings.auto_review === false) {
+        await db.query(
+          "UPDATE pull_requests SET status = 'pending', updated_at = NOW() WHERE id = $1",
+          [prId]
+        );
+        return { skipped: true, reason: 'auto_review disabled' };
+      }
+      
+      const review = await runReviewPipeline(formattedDiff, prTitle, prAuthor, settings);
 
       await job.updateProgress(70);
 
