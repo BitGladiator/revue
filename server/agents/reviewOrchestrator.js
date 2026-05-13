@@ -1,104 +1,44 @@
-const Groq = require('groq-sdk');
-const { REVIEW_PROMPTS } = require('./prompts');
+const runReviewPipeline = async (formattedDiff, prTitle, prAuthor, settings = {}) => {
+  const {
+    enable_quality_agent  = true,
+    enable_security_agent = true,
+    enable_tests_agent    = true,
+    min_severity          = 'low',
+  } = settings;
 
-const pLimit = (concurrency) => {
-  const queue = [];
-  let activeCount = 0;
-
-  const next = () => {
-    activeCount--;
-    if (queue.length > 0) {
-      queue.shift()();
-    }
-  };
-
-  return (fn) => new Promise((resolve, reject) => {
-    const run = async () => {
-      activeCount++;
-      try {
-        const result = await fn();
-        resolve(result);
-      } catch (err) {
-        reject(err);
-      } finally {
-        next();
-      }
-    };
-
-    if (activeCount < concurrency) {
-      run();
-    } else {
-      queue.push(run);
-    }
-  });
-};
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const limit = pLimit(3);
-
-const FAST_MODEL = 'llama-3.1-8b-instant';
-const SMART_MODEL = 'llama-3.3-70b-versatile';
-
-const runAgent = async (name, systemPrompt, userContent, model = FAST_MODEL) => {
   const start = Date.now();
-  try {
-    const response = await groq.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
-      ],
-      temperature: 0.1,
-      max_tokens: 400, 
-      response_format: { type: 'json_object' },
-    });
-
-    const raw = response.choices[0]?.message?.content;
-    if (!raw) throw new Error('Empty response');
-
-    return {
-      agent: name,
-      success: true,
-      output: JSON.parse(raw),
-      tokens: response.usage?.total_tokens || 0,
-      ms: Date.now() - start,
-    };
-  } catch (err) {
-    console.error(`Agent [${name}] failed:`, err.message);
-    return {
-      agent: name,
-      success: false,
-      output: { issues: [], summary: 'Agent failed' },
-      tokens: 0,
-      ms: Date.now() - start,
-    };
-  }
-};
-
-const runReviewPipeline = async (formattedDiff, prTitle, prAuthor) => {
-  const start = Date.now();
-
   const userContent = `PR: "${prTitle}" by @${prAuthor}\n\n${formattedDiff}`;
 
+ 
+  const agentTasks = [];
+  if (enable_quality_agent)  agentTasks.push(limit(() => runAgent('quality',  REVIEW_PROMPTS.quality,  userContent)));
+  if (enable_security_agent) agentTasks.push(limit(() => runAgent('security', REVIEW_PROMPTS.security, userContent)));
+  if (enable_tests_agent)    agentTasks.push(limit(() => runAgent('tests',    REVIEW_PROMPTS.tests,    userContent)));
 
-  const [qualityResult, securityResult, testsResult] = await Promise.all([
-    limit(() => runAgent('quality',  REVIEW_PROMPTS.quality,  userContent)),
-    limit(() => runAgent('security', REVIEW_PROMPTS.security, userContent)),
-    limit(() => runAgent('tests',    REVIEW_PROMPTS.tests,    userContent)),
-  ]);
+  const agentResults = await Promise.all(agentTasks);
+
+  const qualityResult  = enable_quality_agent  ? agentResults.find((r) => r.agent === 'quality')  : { output: { issues: [], summary: 'Agent disabled' }, success: true, tokens: 0 };
+  const securityResult = enable_security_agent ? agentResults.find((r) => r.agent === 'security') : { output: { issues: [], summary: 'Agent disabled' }, success: true, tokens: 0 };
+  const testsResult    = enable_tests_agent    ? agentResults.find((r) => r.agent === 'tests')    : { output: { issues: [], summary: 'Agent disabled' }, success: true, tokens: 0 };
 
   
+  const severityRank = { low: 0, medium: 1, high: 2, critical: 3 };
+  const minRank = severityRank[min_severity] ?? 0;
+
+  const filterBySeverity = (issues) =>
+    (issues || []).filter((i) => (severityRank[i.severity] ?? 0) >= minRank);
+
+  const filteredQuality  = filterBySeverity(qualityResult.output?.issues);
+  const filteredSecurity = filterBySeverity(securityResult.output?.issues);
+  const filteredTests    = filterBySeverity(testsResult.output?.issues);
+
+ 
   const aggregatorContent = `
 PR: "${prTitle}" by @${prAuthor}
 
-QUALITY AGENT:
-${JSON.stringify(qualityResult.output, null, 2)}
-
-SECURITY AGENT:
-${JSON.stringify(securityResult.output, null, 2)}
-
-TEST COVERAGE AGENT:
-${JSON.stringify(testsResult.output, null, 2)}
+QUALITY AGENT: ${JSON.stringify({ ...qualityResult.output, issues: filteredQuality })}
+SECURITY AGENT: ${JSON.stringify({ ...securityResult.output, issues: filteredSecurity })}
+TEST COVERAGE AGENT: ${JSON.stringify({ ...testsResult.output, issues: filteredTests })}
 `.trim();
 
   const aggregatorResult = await runAgent(
@@ -108,40 +48,34 @@ ${JSON.stringify(testsResult.output, null, 2)}
     SMART_MODEL
   );
 
-  const totalTokens =
-    qualityResult.tokens +
-    securityResult.tokens +
-    testsResult.tokens +
-    aggregatorResult.tokens;
-
-  console.log(`Review pipeline complete — ${totalTokens} tokens — ${Date.now() - start}ms`);
-
+  const totalTokens = agentResults.reduce((s, r) => s + r.tokens, 0) +
+    (aggregatorResult.tokens || 0);
 
   const allIssues = [
-    ...(qualityResult.output?.issues  || []).map((i) => ({ ...i, type: 'quality' })),
-    ...(securityResult.output?.issues || []).map((i) => ({ ...i, type: 'security' })),
-    ...(testsResult.output?.issues    || []).map((i) => ({ ...i, type: 'tests' })),
+    ...filteredQuality.map((i)  => ({ ...i, type: 'quality' })),
+    ...filteredSecurity.map((i) => ({ ...i, type: 'security' })),
+    ...filteredTests.map((i)    => ({ ...i, type: 'tests' })),
   ];
 
   return {
-    overall_score:  aggregatorResult.output?.overall_score ?? 50,
-    verdict:        aggregatorResult.output?.verdict ?? 'comment',
-    summary:        aggregatorResult.output?.summary ?? 'Review complete.',
-    top_issues:     aggregatorResult.output?.top_issues ?? [],
-    security_issues: securityResult.output?.issues  || [],
-    quality_issues:  qualityResult.output?.issues   || [],
-    test_issues:     testsResult.output?.issues     || [],
+    overall_score:   aggregatorResult.output?.overall_score ?? 50,
+    verdict:         aggregatorResult.output?.verdict ?? 'comment',
+    summary:         aggregatorResult.output?.summary ?? 'Review complete.',
+    top_issues:      aggregatorResult.output?.top_issues ?? [],
+    security_issues: filteredSecurity,
+    quality_issues:  filteredQuality,
+    test_issues:     filteredTests,
     all_issues:      allIssues,
     agent_reasoning: {
-      quality:   qualityResult.output?.summary,
-      security:  securityResult.output?.summary,
-      tests:     testsResult.output?.summary,
+      quality:  qualityResult.output?.summary,
+      security: securityResult.output?.summary,
+      tests:    testsResult.output?.summary,
     },
     pipeline_meta: {
-      total_tokens: totalTokens,
-      duration_ms:  Date.now() - start,
+      total_tokens:    totalTokens,
+      duration_ms:     Date.now() - start,
+      agents_enabled:  agentTasks.length,
+      min_severity,
     },
   };
 };
-
-module.exports = { runReviewPipeline };

@@ -26,7 +26,6 @@ const useReviewSocket = (userId) => {
       setPrStatuses((prev) => ({ ...prev, [prId]: { status, message } }));
     });
 
-
     socketRef.current.on('pr_reviewed', (data) => {
       setPrStatuses((prev) => ({
         ...prev,
