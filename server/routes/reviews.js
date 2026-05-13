@@ -1,7 +1,7 @@
 const express = require('express');
 const authenticate = require('../middleware/authenticate');
 const db = require('../db');
-
+const { reviewQueue } = require('../queues/index');
 const router = express.Router();
 
 router.get('/repo/:repoId', authenticate, async (req, res) => {
@@ -43,7 +43,60 @@ router.get('/pr/:prId', authenticate, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router.post('/pr/:prId/rereview', authenticate, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT pr.*, r.user_id, r.owner, r.name as repo_name,
+              r.installation_id, r.full_name
+       FROM pull_requests pr
+       JOIN repos r ON r.id = pr.repo_id
+       WHERE pr.id = $1 AND r.user_id = $2`,
+      [req.params.prId, req.userId]
+    );
 
+    if (!rows[0]) return res.status(404).json({ error: 'PR not found' });
+
+    const pr = rows[0];
+
+ 
+    await db.query(
+      "UPDATE pull_requests SET status = 'pending', updated_at = NOW() WHERE id = $1",
+      [pr.id]
+    );
+
+   
+    await db.query('DELETE FROM reviews WHERE pr_id = $1', [pr.id]);
+
+  
+    const redis = require('../db/redis');
+    await redis.del(`diff:${pr.owner}:${pr.repo_name}:${pr.pr_number}`);
+
+    
+    const job = await reviewQueue.add(
+      'review-pr',
+      {
+        prId:           pr.id,
+        owner:          pr.owner,
+        repo:           pr.repo_name,
+        prNumber:       pr.pr_number,
+        prTitle:        pr.title,
+        prAuthor:       pr.author,
+        installationId: pr.installation_id,
+        userId:         req.userId,
+      },
+      {
+        attempts:         3,
+        backoff:          { type: 'exponential', delay: 3000 },
+        removeOnComplete: { count: 50 },
+        removeOnFail:     { count: 20 },
+      }
+    );
+
+    res.json({ success: true, jobId: job.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 router.post('/pr/:prId/retry', authenticate, async (req, res) => {
   try {
     const { rows } = await db.query(

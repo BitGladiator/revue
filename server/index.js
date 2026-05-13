@@ -11,7 +11,8 @@ const { ExpressAdapter } = require('@bull-board/express');
 const { createBullBoard } = require('@bull-board/api');
 const { BullMQAdapter } = require('@bull-board/api/bullMQAdapter');
 const { reviewQueue } = require('./queues/index');
-
+const settingsRoutes  = require('./routes/settings');
+const analyticsRoutes = require('./routes/analytics');
 
 require('./queues/workers/reviewWorker');
 
@@ -61,7 +62,8 @@ app.use(express.json({ limit: '10kb' }));
 app.use('/api/auth',    authRoutes);
 app.use('/api/repos',   repoRoutes);
 app.use('/api/reviews', reviewRoutes);
-
+app.use('/api/settings',  settingsRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 io.on('connection', (socket) => {
   socket.on('join', (userId) => {
