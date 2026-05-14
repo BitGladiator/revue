@@ -1,6 +1,8 @@
 const express = require('express');
 const authenticate = require('../middleware/authenticate');
 const db = require('../db');
+const { reviewQueue } = require('../queues/index');
+const { getInstallationIdForRepo } = require('../services/githubAppService');
 
 const router = express.Router();
 
@@ -74,7 +76,7 @@ router.post('/connect', authenticate, async (req, res) => {
        RETURNING *`,
       [req.userId, github_repo_id, full_name, name, owner, isPrivate]
     );
-    
+
     let repo = rows[0];
 
     if (!repo) {
@@ -92,6 +94,23 @@ router.post('/connect', authenticate, async (req, res) => {
     const token = userRows[0]?.access_token;
 
     if (token && repo) {
+      // Fetch the GitHub App installation ID so the worker can read diffs
+      let installationId = repo.installation_id;
+      if (!installationId) {
+        try {
+          installationId = await getInstallationIdForRepo(owner, name);
+          if (installationId) {
+            await db.query(
+              'UPDATE repos SET installation_id = $1 WHERE id = $2',
+              [String(installationId), repo.id]
+            );
+            repo.installation_id = String(installationId);
+          }
+        } catch (err) {
+          console.warn(`Could not fetch installationId for ${full_name}:`, err.message);
+        }
+      }
+
       const pullsRes = await fetch(
         `https://api.github.com/repos/${full_name}/pulls?state=open&per_page=10`,
         {
@@ -104,12 +123,15 @@ router.post('/connect', authenticate, async (req, res) => {
 
       if (pullsRes.ok) {
         const pulls = await pullsRes.json();
+
         for (const pr of pulls) {
-          await db.query(
+          // Insert PR row (skip if already exists)
+          const { rows: prRows } = await db.query(
             `INSERT INTO pull_requests
                (repo_id, github_pr_id, pr_number, title, author, base_branch, head_branch, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
-             ON CONFLICT (repo_id, github_pr_id) DO NOTHING`,
+             ON CONFLICT (repo_id, github_pr_id) DO NOTHING
+             RETURNING id`,
             [
               repo.id,
               String(pr.id),
@@ -120,6 +142,30 @@ router.post('/connect', authenticate, async (req, res) => {
               pr.head.ref,
             ]
           );
+
+         
+          const prId = prRows[0]?.id;
+          if (prId && installationId) {
+            await reviewQueue.add(
+              'review-pr',
+              {
+                prId,
+                owner,
+                repo: name,
+                prNumber: pr.number,
+                prTitle: pr.title,
+                prAuthor: pr.user.login,
+                installationId: String(installationId),
+                userId: req.userId,
+              },
+              {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 3000 },
+                removeOnComplete: { count: 50 },
+                removeOnFail:     { count: 20 },
+              }
+            );
+          }
         }
       }
     }
