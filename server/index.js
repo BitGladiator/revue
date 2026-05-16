@@ -2,8 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const helmet = require('helmet');
-const compression = require('compression');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const { execSync } = require('child_process');
@@ -11,15 +9,20 @@ const { ExpressAdapter } = require('@bull-board/express');
 const { createBullBoard } = require('@bull-board/api');
 const { BullMQAdapter } = require('@bull-board/api/bullMQAdapter');
 const { reviewQueue } = require('./queues/index');
-const settingsRoutes  = require('./routes/settings');
-const analyticsRoutes = require('./routes/analytics');
+
+const { securityHeaders, compress } = require('./middleware/security');
+const { globalLimiter, authLimiter, webhookLimiter,
+        reReviewLimiter, speedLimiter } = require('./middleware/rateLimiter');
+const requestLogger = require('./middleware/requestLogger');
 
 require('./queues/workers/reviewWorker');
 
-const authRoutes    = require('./routes/auth');
-const repoRoutes    = require('./routes/repos');
-const webhookRoutes = require('./routes/webhooks');
-const reviewRoutes  = require('./routes/reviews');
+const authRoutes      = require('./routes/auth');
+const repoRoutes      = require('./routes/repos');
+const webhookRoutes   = require('./routes/webhooks');
+const reviewRoutes    = require('./routes/reviews');
+const settingsRoutes  = require('./routes/settings');
+const analyticsRoutes = require('./routes/analytics');
 
 const app = express();
 const httpServer = createServer(app);
@@ -39,13 +42,28 @@ const allowedOrigins = [process.env.CLIENT_URL, 'http://localhost:5173'].filter(
 const io = new Server(httpServer, {
   cors: { origin: allowedOrigins, credentials: true },
   transports: ['websocket'],
+  pingTimeout: 20000,
+  pingInterval: 25000,
 });
-
 
 module.exports.io = io;
 
-app.use(helmet());
-app.use(compression());
+
+app.use(securityHeaders);
+
+
+app.use(compress);
+
+
+app.use(requestLogger);
+
+
+app.use(globalLimiter);
+
+
+app.use(speedLimiter);
+
+
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(cookieParser());
 
@@ -56,36 +74,51 @@ createBullBoard({ queues: [new BullMQAdapter(reviewQueue)], serverAdapter });
 app.use('/admin/queues', serverAdapter.getRouter());
 
 
-app.use('/api/webhooks', webhookRoutes);
+app.use('/api/webhooks', webhookLimiter, express.raw({ type: 'application/json' }), webhookRoutes);
+
+
 app.use(express.json({ limit: '10kb' }));
 
-app.use('/api/auth',    authRoutes);
-app.use('/api/repos',   repoRoutes);
-app.use('/api/reviews', reviewRoutes);
+
+
+app.use('/api/auth',      authLimiter, authRoutes);
+app.use('/api/repos',     repoRoutes);
 app.use('/api/settings',  settingsRoutes);
 app.use('/api/analytics', analyticsRoutes);
+
+
+app.use('/api/reviews',   reviewRoutes);
+
 
 io.on('connection', (socket) => {
   socket.on('join', (userId) => {
     socket.join(`user:${userId}`);
-    console.log(`User ${userId} connected to WebSocket`);
+    console.log(`User ${userId} joined WebSocket room`);
   });
-
-  socket.on('disconnect', () => {
-    console.log('Client disconnected');
-  });
+  socket.on('disconnect', () => {});
 });
+
 
 app.get('/api/health', (req, res) => res.json({
   status: 'ok',
   uptime: Math.round(process.uptime()),
+  memory: {
+    heapUsed:  Math.round(process.memoryUsage().heapUsed  / 1024 / 1024) + 'MB',
+    heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB',
+  },
   timestamp: new Date().toISOString(),
 }));
 
+
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err.message);
-  res.status(err.status || 500).json({ error: err.message });
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production'
+      ? 'Something went wrong'
+      : err.message,
+  });
 });
 
 const PORT = process.env.PORT || 5500;
-httpServer.listen(PORT, () => console.log(`Revue server running on port ${PORT}`));
+httpServer.listen(PORT, () => console.log(`Revue running on port ${PORT}`));
