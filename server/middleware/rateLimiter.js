@@ -1,5 +1,5 @@
 const rateLimit = require('express-rate-limit');
-const RedisStore = require('rate-limit-redis');
+const { RedisStore } = require('rate-limit-redis');
 const slowDown = require('express-slow-down');
 const redis = require('../db/redis');
 

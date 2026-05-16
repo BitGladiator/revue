@@ -3,7 +3,7 @@ const authenticate = require('../middleware/authenticate');
 const db = require('../db');
 const { reviewQueue } = require('../queues/index');
 const router = express.Router();
-
+const { reReviewLimiter } = require('../middleware/rateLimiter');
 router.get('/repo/:repoId', authenticate, async (req, res) => {
   try {
     const { rows } = await db.query(
@@ -43,7 +43,7 @@ router.get('/pr/:prId', authenticate, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router.post('/pr/:prId/rereview', authenticate, async (req, res) => {
+router.post('/pr/:prId/rereview', authenticate, reReviewLimiter , async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT pr.*, r.user_id, r.owner, r.name as repo_name,

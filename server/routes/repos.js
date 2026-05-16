@@ -125,7 +125,6 @@ router.post('/connect', authenticate, async (req, res) => {
         const pulls = await pullsRes.json();
 
         for (const pr of pulls) {
-          // Insert PR row (skip if already exists)
           const { rows: prRows } = await db.query(
             `INSERT INTO pull_requests
                (repo_id, github_pr_id, pr_number, title, author, base_branch, head_branch, status)
