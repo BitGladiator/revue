@@ -6,20 +6,26 @@ services:
     container_name: revue_server
     ports:
       - '5500:5500'
-    env_file:
-      - ./server/.env
     environment:
       - PORT=5500
       - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/revue
       - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_APP_ID=${GITHUB_APP_ID}
+      - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - CLIENT_URL=http://localhost:5173
-    depends_on:
-      - postgres
-      - redis
+      - GROQ_API_KEY=${GROQ_API_KEY}
     volumes:
       - ./server:/app
       - /app/node_modules
+      - server_logs:/var/log/revue
+    depends_on:
+      - postgres
+      - redis
     restart: unless-stopped
     deploy:
       resources:
@@ -53,7 +59,6 @@ services:
       redis-server
         --maxmemory 128mb
         --maxmemory-policy noeviction
-        --appendonly yes
     volumes:
       - redis_data:/data
     deploy:
@@ -61,6 +66,115 @@ services:
         limits:
           memory: 150M
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: revue_prometheus
+    restart: unless-stopped
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=512MB'
+      - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: revue_grafana
+    restart: unless-stopped
+    ports:
+      - '3001:3000'
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+      - loki
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: revue_loki
+    restart: unless-stopped
+    ports:
+      - '3100:3100'
+    volumes:
+      - ./observability/loki.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: revue_promtail
+    restart: unless-stopped
+    volumes:
+      - ./observability/promtail.yml:/etc/promtail/config.yml
+      - server_logs:/var/log/revue
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: revue_alertmanager
+    restart: unless-stopped
+    ports:
+      - '9093:9093'
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: revue_node_exporter
+    restart: unless-stopped
+    ports:
+      - '9100:9100'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  server_logs:

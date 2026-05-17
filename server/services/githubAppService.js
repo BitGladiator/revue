@@ -2,7 +2,11 @@ const { Octokit } = require('@octokit/rest');
 const { createAppAuth } = require('@octokit/auth-app');
 const parseDiff = require('parse-diff');
 const redis = require('../db/redis');
-
+const {
+  githubApiCalls,
+  githubApiDuration,
+  cacheOperations,
+} = require('../observability/metrics');
 
 const getInstallationOctokit = async (installationId) => {
   const auth = createAppAuth({
@@ -36,40 +40,47 @@ const getInstallationIdForRepo = async (owner, repo) => {
 const getPRDiff = async (owner, repo, prNumber, installationId) => {
   const cacheKey = `diff:${owner}:${repo}:${prNumber}`;
   const cached = await redis.get(cacheKey);
-  if (cached) return JSON.parse(cached);
 
-  const octokit = await getInstallationOctokit(installationId);
+  if (cached) {
+    cacheOperations.inc({ operation: 'get', result: 'hit' });
+    return JSON.parse(cached);
+  }
 
-  const { data } = await octokit.pulls.get({
-    owner,
-    repo,
-    pull_number: prNumber,
-    mediaType: { format: 'diff' },
-  });
+  cacheOperations.inc({ operation: 'get', result: 'miss' });
 
-  
-  const files = parseDiff(data);
+  const end = githubApiDuration.startTimer({ endpoint: 'get_pr_diff' });
+  try {
+    const octokit = await getInstallationOctokit(installationId);
+    const { data } = await octokit.pulls.get({
+      owner, repo,
+      pull_number: prNumber,
+      mediaType: { format: 'diff' },
+    });
+    githubApiCalls.inc({ endpoint: 'get_pr_diff', status: 'success' });
+    end();
 
+    const files = parseDiff(data);
+    const shaped = files.map((file) => ({
+      filename: file.to || file.from,
+      additions: file.additions,
+      deletions: file.deletions,
+      chunks: file.chunks.map((chunk) => ({
+        header: chunk.content,
+        changes: chunk.changes
+          .filter((c) => c.type === 'add' || c.type === 'del')
+          .map((c) => ({ type: c.type, ln: c.ln || c.ln2, content: c.content })),
+      })),
+    }));
 
-  const shaped = files.map((file) => ({
-    filename: file.to || file.from,
-    additions: file.additions,
-    deletions: file.deletions,
-    chunks: file.chunks.map((chunk) => ({
-      header: chunk.content,
-      changes: chunk.changes
-        .filter((c) => c.type === 'add' || c.type === 'del')
-        .map((c) => ({
-          type: c.type,
-          ln: c.ln || c.ln2,
-          content: c.content,
-        })),
-    })),
-  }));
+    await redis.setex(cacheKey, 600, JSON.stringify(shaped));
+    cacheOperations.inc({ operation: 'set', result: 'hit' });
+    return shaped;
 
-  
-  await redis.setex(cacheKey, 600, JSON.stringify(shaped));
-  return shaped;
+  } catch (err) {
+    githubApiCalls.inc({ endpoint: 'get_pr_diff', status: 'error' });
+    end();
+    throw err;
+  }
 };
 
 

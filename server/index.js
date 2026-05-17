@@ -14,7 +14,9 @@ const { securityHeaders, compress } = require('./middleware/security');
 const { globalLimiter, authLimiter, webhookLimiter,
         reReviewLimiter, speedLimiter } = require('./middleware/rateLimiter');
 const requestLogger = require('./middleware/requestLogger');
-
+const requestMetrics = require('./middleware/requestMetrics');
+const { register, activeWebSocketConnections } = require('./observability/metrics');
+const logger = require('./observability/logger');
 require('./queues/workers/reviewWorker');
 
 const authRoutes      = require('./routes/auth');
@@ -54,7 +56,7 @@ app.use(securityHeaders);
 
 app.use(compress);
 
-
+app.use(requestMetrics);
 app.use(requestLogger);
 
 
@@ -91,13 +93,22 @@ app.use('/api/reviews',   reviewRoutes);
 
 
 io.on('connection', (socket) => {
+  activeWebSocketConnections.inc();
+
   socket.on('join', (userId) => {
     socket.join(`user:${userId}`);
-    console.log(`User ${userId} joined WebSocket room`);
+    logger.info('User joined WebSocket room', { userId });
   });
-  socket.on('disconnect', () => {});
+
+  socket.on('disconnect', () => {
+    activeWebSocketConnections.dec();
+  });
 });
 
+app.get('/metrics', async (req, res) => {
+  res.setHeader('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
 
 app.get('/api/health', (req, res) => res.json({
   status: 'ok',

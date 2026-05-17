@@ -2,7 +2,7 @@ const express = require('express');
 const { Webhooks } = require('@octokit/webhooks');
 const db = require('../db');
 const { reviewQueue } = require('../queues/index');
-
+const { webhookEventsTotal, reviewJobsTotal } = require('../observability/metrics');
 const router = express.Router();
 
 const webhooks = new Webhooks({
@@ -18,10 +18,13 @@ router.post(
 
     const isValid = await webhooks.verify(body, signature);
     if (!isValid) return res.status(401).json({ error: 'Invalid signature' });
-
+    
     const event = req.headers['x-github-event'];
     const payload = JSON.parse(body);
-
+    webhookEventsTotal.inc({
+      event,
+      action: payload.action || 'unknown',
+    });
     if (event === 'pull_request') {
       const { action, pull_request, repository, installation } = payload;
 
@@ -69,7 +72,7 @@ router.post(
                 prTitle:        pull_request.title,
                 prAuthor:       pull_request.user.login,
                 installationId: String(installation?.id),
-                userId,         // needed for WebSocket targeting
+                userId,         
               },
               {
                 attempts:         3,
@@ -78,7 +81,7 @@ router.post(
                 removeOnFail:     { count: 20 },
               }
             );
-
+            reviewJobsTotal.inc({ status: 'queued' });
             console.log(`PR #${pull_request.number} queued for review`);
           }
         } catch (err) {

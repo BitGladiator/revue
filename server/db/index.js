@@ -1,5 +1,17 @@
 const { Pool } = require('pg');
+const { dbQueryDuration } = require('../observability/metrics');
 
+const query = async (text, params, queryName = 'unknown') => {
+  const end = dbQueryDuration.startTimer({ query_name: queryName });
+  try {
+    const result = await pool.query(text, params);
+    end();
+    return result;
+  } catch (err) {
+    end();
+    throw err;
+  }
+};
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 20,
@@ -16,7 +28,7 @@ pool.on('error', (err) => {
 });
 
 module.exports = {
-  query: (text, params) => pool.query(text, params),
+  query,
   getClient: () => pool.connect(),
   end: () => pool.end(),
 };

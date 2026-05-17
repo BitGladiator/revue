@@ -1,4 +1,5 @@
 const { Worker } = require("bullmq");
+const { reviewJobsTotal } = require('../../observability/metrics');
 const { connection } = require("../index");
 const db = require("../../db");
 const {
@@ -132,7 +133,7 @@ const worker = new Worker(
           review.test_issues.length,
         reviewId: rows[0].id,
       });
-
+      reviewJobsTotal.inc({ status: 'completed' });
       console.log(
         `Review complete for PR #${prNumber} — score: ${review.overall_score}`
       );
@@ -150,7 +151,7 @@ const worker = new Worker(
         status: "failed",
         message: `Review failed for PR #${prNumber}`,
       });
-
+      reviewJobsTotal.inc({ status: 'failed' });
       throw err;
     }
   },
