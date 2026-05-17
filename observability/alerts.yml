@@ -1,0 +1,29 @@
+groups:
+  - name: revue_alerts
+    rules:
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="revue_server"} > 450000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on Revue server"
+          description: "Server memory usage is above 450MB for more than 5 minutes."
+
+      - alert: ServiceDown
+        expr: up{job="revue_server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Revue server is down"
+          description: "The Revue server has been unreachable for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP 5xx error rate"
+          description: "More than 10% of requests are returning 5xx errors."

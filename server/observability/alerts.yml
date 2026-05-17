@@ -1,0 +1,48 @@
+groups:
+  - name: revue_alerts
+    rules:
+
+      - alert: HighErrorRate
+        expr: |
+          rate(http_errors_total[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+
+      - alert: SlowReviewPipeline
+        expr: |
+          histogram_quantile(0.95, rate(review_pipeline_duration_seconds_bucket[5m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Review pipeline p95 over 30 seconds"
+
+      - alert: HighGroqTokenUsage
+        expr: |
+          rate(groq_tokens_per_review_sum[1h]) > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Groq token usage spike"
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Revue service is down"
+
+      - alert: ReviewJobsFailing
+        expr: |
+          rate(review_jobs_total{status="failed"}[10m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Review jobs failing at high rate"
