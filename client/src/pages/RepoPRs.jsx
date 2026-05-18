@@ -4,44 +4,41 @@ import { getRepoPRs, getRepos } from "../api/client.js";
 import useReviewSocket from "../hooks/useReviewSocket.js";
 import { useAuth } from "../hooks/useAuth.jsx";
 
-const STATUS_STYLES = {
-  pending: { bg: "#FEFCBF", color: "#744210", label: "Pending" },
-  reviewing: { bg: "#EBF8FF", color: "#2B6CB0", label: "Reviewing..." },
-  reviewed: { bg: "#F0FFF4", color: "#276749", label: "Reviewed" },
-  failed: { bg: "#FFF5F5", color: "#9B2335", label: "Failed" },
+const STATUS_CONFIG = {
+  pending:   { label: "Pending",    color: "#92400E", bg: "rgba(146,64,14,0.08)",  border: "rgba(146,64,14,0.2)"  },
+  reviewing: { label: "Reviewing…", color: "#1D4ED8", bg: "rgba(29,78,216,0.08)",  border: "rgba(29,78,216,0.2)"  },
+  reviewed:  { label: "Reviewed",   color: "#065F46", bg: "rgba(6,95,70,0.08)",    border: "rgba(6,95,70,0.2)"    },
+  failed:    { label: "Failed",     color: "#B91C1C", bg: "rgba(185,28,28,0.08)",  border: "rgba(185,28,28,0.2)"  },
 };
+
+const scoreHue = (s) => s >= 80 ? 152 : s >= 60 ? 197 : s >= 40 ? 38 : 0;
 
 const ScoreBadge = ({ score }) => {
   if (score === null || score === undefined) return null;
-  const color = score >= 80 ? "#276749" : score >= 60 ? "#744210" : "#9B2335";
-  const bg = score >= 80 ? "#F0FFF4" : score >= 60 ? "#FEFCBF" : "#FFF5F5";
+  const hue = scoreHue(score);
   return (
-    <div
-      style={{
-        background: bg,
-        color,
-        fontSize: "13px",
-        fontWeight: "600",
-        padding: "3px 10px",
-        borderRadius: "99px",
-      }}
-    >
-      {score}/100
+    <div style={{
+      fontSize: 13, fontWeight: 700,
+      color: `hsl(${hue} 65% 36%)`,
+      background: `hsl(${hue} 60% 96%)`,
+      border: `1px solid hsl(${hue} 50% 86%)`,
+      padding: "2px 10px", borderRadius: 99,
+      letterSpacing: "-0.2px",
+    }}>
+      {score}<span style={{ fontSize: 10, fontWeight: 500, marginLeft: 1 }}>/100</span>
     </div>
   );
 };
 
 const RepoPRs = () => {
   const { repoId } = useParams();
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const [prs, setPRs] = useState([]);
+  const { user }   = useAuth();
+  const navigate   = useNavigate();
+  const [prs, setPRs]           = useState([]);
   const [repoName, setRepoName] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]   = useState(true);
 
   const { prStatuses } = useReviewSocket(user?.id);
-
-  
 
   useEffect(() => {
     Promise.all([getRepoPRs(repoId), getRepos()])
@@ -55,219 +52,188 @@ const RepoPRs = () => {
   }, [repoId]);
 
   const formatDate = (dateStr) =>
-    new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
+    new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
   return (
-    <div style={{ maxWidth: "860px", margin: "0 auto", padding: "40px 24px" }}>
-      <div style={{ marginBottom: "32px" }}>
-        <button
-          onClick={() => navigate("/dashboard")}
-          style={{
-            background: "none",
-            border: "none",
-            color: "#718096",
-            cursor: "pointer",
-            fontSize: "13px",
-            padding: 0,
-            marginBottom: "8px",
-          }}
-        >
-          ← Back to dashboard
-        </button>
-        <h1
-          style={{
-            fontSize: "20px",
-            fontWeight: "600",
-            color: "#1a202c",
-            margin: 0,
-          }}
-        >
-          {repoName}
-        </h1>
-        <p style={{ fontSize: "13px", color: "#718096", margin: "4px 0 0" }}>
-          Pull requests reviewed by Revue
-        </p>
-      </div>
+    <>
+      <style>{`
+        @keyframes fadeUp {
+          from { opacity:0; transform:translateY(10px); }
+          to   { opacity:1; transform:translateY(0);    }
+        }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        @keyframes pulse {
+          0%,100% { opacity:1; } 50% { opacity:0.4; }
+        }
+        .pr-card:hover { border-color:#9ca3af !important; box-shadow:0 4px 16px rgba(0,0,0,0.07) !important; transform:translateY(-1px); }
+        .back-btn:hover { color:#374151 !important; }
+        .settings-btn:hover { background:#f3f4f6 !important; }
+      `}</style>
 
-      {loading ? (
-        <div style={{ color: "#a0aec0", fontSize: "14px" }}>Loading...</div>
-      ) : prs.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "60px",
-            border: "1px dashed #e2e8f0",
-            borderRadius: "12px",
-            color: "#a0aec0",
-            fontSize: "14px",
-          }}
-        >
-          No pull requests yet. Open a PR on this repo to trigger a review.
+      <div style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px 60px" }}>
+
+        <div style={{ marginBottom: 30 }}>
+          <button
+            className="back-btn"
+            onClick={() => navigate("/dashboard")}
+            style={{
+              background: "none", border: "none", color: "#9ca3af",
+              cursor: "pointer", fontSize: 13, padding: 0, marginBottom: 16,
+              display: "flex", alignItems: "center", gap: 5, transition: "color 0.15s",
+            }}
+          >
+            ← Back to dashboard
+          </button>
+          <h1 style={{
+            margin: "0 0 4px", fontSize: 20, fontWeight: 700,
+            color: "#111827", letterSpacing: "-0.3px",
+          }}>
+            {repoName}
+          </h1>
+          <p style={{ margin: 0, fontSize: 12.5, color: "#9ca3af" }}>
+            Pull requests reviewed by Revue
+          </p>
         </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {prs.map((pr) => {
-            const liveStatus = prStatuses[pr.id];
-            const status = liveStatus?.status || pr.status;
-            const score = liveStatus?.score ?? pr.quality_score;
-            const statusStyle = STATUS_STYLES[status] || STATUS_STYLES.pending;
-            const isReviewed = status === "reviewed";
 
-            return (
-              <div
-                key={pr.id}
-                onClick={() => isReviewed && navigate(`/reviews/${pr.id}`)}
-                style={{
-                  background: "#fff",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "10px",
-                  padding: "16px 20px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  cursor: isReviewed ? "pointer" : "default",
-                  transition: "border-color 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  if (isReviewed) e.currentTarget.style.borderColor = "#a0aec0";
-                }}
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.borderColor = "#e2e8f0")
-                }
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: "13px",
-                        color: "#a0aec0",
-                        flexShrink: 0,
-                      }}
-                    >
-                      #{pr.pr_number}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: "14px",
-                        fontWeight: "500",
-                        color: "#1a202c",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {pr.title}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#718096" }}>
-                    by @{pr.author} · {formatDate(pr.created_at)} ·{" "}
-                    {pr.head_branch} → {pr.base_branch}
-                  </div>
-                  {status === "reviewing" && liveStatus?.message && (
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#2B6CB0",
-                        marginTop: "6px",
-                      }}
-                    >
-                      {liveStatus.message}
-                    </div>
-                  )}
-                  {pr.overall_summary && status === "reviewed" && (
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#4a5568",
-                        marginTop: "6px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {pr.overall_summary}
-                    </div>
-                  )}
-                </div>
+        {loading ? (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            color: "#9ca3af", fontSize: 13, padding: "40px 0",
+          }}>
+            <div style={{
+              width: 16, height: 16, borderRadius: "50%",
+              border: "2px solid #e5e7eb", borderTopColor: "#374151",
+              animation: "spin 0.7s linear infinite",
+            }} />
+            Loading pull requests…
+          </div>
+        ) : prs.length === 0 ? (
+          <div style={{
+            textAlign: "center", padding: "60px 20px",
+            border: "1px dashed #d1d5db", borderRadius: 14,
+            color: "#9ca3af", fontSize: 13.5,
+          }}>
+            No pull requests yet. Open a PR on this repo to trigger a review.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, animation: "fadeUp 0.4s ease both" }}>
+            {prs.map((pr) => {
+              const live       = prStatuses[pr.id];
+              const status     = live?.status || pr.status;
+              const score      = live?.score  ?? pr.quality_score;
+              const cfg        = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+              const isReviewed  = status === "reviewed";
+              const isReviewing = status === "reviewing";
 
+              return (
                 <div
+                  key={pr.id}
+                  className="pr-card"
+                  onClick={() => isReviewed && navigate(`/reviews/${pr.id}`)}
                   style={{
+                    background: "#fff",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 12,
+                    padding: "16px 18px",
                     display: "flex",
+                    justifyContent: "space-between",
                     alignItems: "center",
-                    gap: "10px",
-                    flexShrink: 0,
-                    marginLeft: "16px",
+                    cursor: isReviewed ? "pointer" : "default",
+                    transition: "border-color 0.15s, box-shadow 0.15s, transform 0.15s",
+                    gap: 12,
                   }}
                 >
-                  {/* {(status === "pending" || status === "failed") && (
-                    // <button
-                    //   onClick={(e) => handleRetry(e, pr.id)}
-                    //   style={{
-                    //     fontSize: "12px",
-                    //     padding: "4px 10px",
-                    //     borderRadius: "6px",
-                    //     border: "1px solid #e2e8f0",
-                    //     background: "#fff",
-                    //     cursor: "pointer",
-                    //   }}
-                    // >
-                    //   Retry Review
-                    // </button>
-                  )} */}
-                  <ScoreBadge score={score} />
-                  <span
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: "500",
-                      background: statusStyle.bg,
-                      color: statusStyle.color,
-                      padding: "2px 8px",
-                      borderRadius: "99px",
-                    }}
-                  >
-                    {statusStyle.label}
-                  </span>
-                  
-                   <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/repos/${repoId}/settings`);
-                  }}
-                  style={{
-                    fontSize: "12px",
-                    color: "#718096",
-                    background: "none",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "6px",
-                    padding: "5px 10px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Settings
-                </button>
-                {isReviewed && (
-                    <span style={{ color: "#a0aec0", fontSize: "12px" }}>
-                      →
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                      <span style={{
+                        fontSize: 11, color: "#9ca3af", flexShrink: 0,
+                        fontFamily: "ui-monospace,monospace",
+                      }}>#{pr.pr_number}</span>
+                      <span style={{
+                        fontSize: 14, fontWeight: 600, color: "#111827",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>{pr.title}</span>
+                    </div>
+
+                    <div style={{ fontSize: 12, color: "#9ca3af" }}>
+                      <strong style={{ color: "#6b7280" }}>@{pr.author}</strong>
+                      {" · "}{formatDate(pr.created_at)}
+                      {" · "}
+                      <code style={{
+                        fontSize: 11, background: "#f3f4f6", padding: "0 5px",
+                        borderRadius: 4, fontFamily: "ui-monospace,monospace", color: "#374151",
+                      }}>{pr.head_branch}</code>
+                      {" → "}
+                      <code style={{
+                        fontSize: 11, background: "#f3f4f6", padding: "0 5px",
+                        borderRadius: 4, fontFamily: "ui-monospace,monospace", color: "#374151",
+                      }}>{pr.base_branch}</code>
+                    </div>
+
+                    {isReviewing && live?.message && (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        fontSize: 12, color: "#1D4ED8", marginTop: 6,
+                      }}>
+                        <div style={{
+                          width: 6, height: 6, borderRadius: "50%",
+                          background: "#1D4ED8",
+                          animation: "pulse 1.2s ease infinite",
+                        }} />
+                        {live.message}
+                      </div>
+                    )}
+
+                    {pr.overall_summary && isReviewed && (
+                      <div style={{
+                        fontSize: 12, color: "#6b7280", marginTop: 6,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {pr.overall_summary}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <ScoreBadge score={score} />
+
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      color: cfg.color, background: cfg.bg,
+                      border: `1px solid ${cfg.border}`,
+                      padding: "2px 9px", borderRadius: 99,
+                    }}>
+                      {cfg.label}
                     </span>
-                  )}
+
+                    <button
+                      className="settings-btn"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/repos/${repoId}/settings`); }}
+                      style={{
+                        fontSize: 12, color: "#6b7280",
+                        background: "#fff",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 7, padding: "5px 11px",
+                        cursor: "pointer", transition: "background 0.15s",
+                      }}
+                    >
+                      Settings
+                    </button>
+
+                    {isReviewed && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    )}
+                  </div>
                 </div>
-               
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
   );
 };
 
