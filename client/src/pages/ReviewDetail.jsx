@@ -196,7 +196,7 @@ const IssueSection = ({ type, issues }) => {
 
   return (
     <div style={{ marginBottom: 20 }}>
-      {/* section header */}
+
       <button
         onClick={() => setCollapsed((c) => !c)}
         style={{
@@ -272,7 +272,6 @@ const AgentReasoningPanel = ({ agentReasoning }) => {
       borderRadius: 12,
       overflow: "hidden",
     }}>
-      {/* toggle header */}
       <button
         onClick={() => setOpen((o) => !o)}
         style={{
@@ -432,7 +431,7 @@ const ReviewDetail = () => {
 
       <div style={{ maxWidth: 820, margin: "0 auto", padding: "36px 24px 60px" }}>
 
-        {/* ── back + re-review ── */}
+      
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
           <button
             className="back-btn"
